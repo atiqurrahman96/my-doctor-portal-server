@@ -19,6 +19,7 @@ async function run() {
         const serviceCollection = client.db("doctor_portal").collection("service");
         const bookingCollection = client.db("doctor_portal").collection("booking");
         const userCollection = client.db("doctor_portal").collection("users");
+        const doctorCollection = client.db("doctor_portal").collection("doctors");
         // function for verify jwt token
         function verifyJwt(req, res, next) {
             const authHeader = req.headers.authorization;
@@ -34,13 +35,23 @@ async function run() {
                 next();
             });
         }
-
+        // verify admin
+        const verifyAdmin = async (req, res, next) => {
+            const requester = req.decoded.email;
+            const requesterAccount = await userCollection.findOne({ email: requester });
+            if (requesterAccount.role === 'admin') {
+                next();
+            }
+            else {
+                res.status(403).send({ message: 'forbidden' })
+            }
+        }
 
         // ------data load or get api ----------
         app.get('/service', async (req, res) => {
 
             const query = {};
-            const cursor = serviceCollection.find(query)
+            const cursor = serviceCollection.find(query).project({ name: 1 })
             const services = await cursor.toArray();
             res.send(services);
         })
@@ -92,23 +103,15 @@ async function run() {
             const token = jwt.sign({ email: email }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '1h' })
             res.send({ result, token })
         })
-        // admin role
-        app.put('/user/admin/:email', verifyJwt, async (req, res) => {
+        // update method for admin
+        app.put('/user/admin/:email', verifyJwt, verifyAdmin, async (req, res) => {
             const email = req.params.email;
-            const requester = req.decoded.email;
-            const requesterAccount = await userCollection.findOne({ email: requester });
-            if (requesterAccount.role === 'admin') {
-                const filter = { email: email };
-                const updateDoc = {
-                    $set: { role: 'admin' },
-                };
-                const result = await userCollection.updateOne(filter, updateDoc);
-
-                res.send(result)
-            }
-            else {
-                res.status(403).send({ message: 'forbidden' })
-            }
+            const filter = { email: email };
+            const updateDoc = {
+                $set: { role: 'admin' },
+            };
+            const result = await userCollection.updateOne(filter, updateDoc);
+            res.send(result)
         })
         // without admin page not show api 
         app.get('/admin/:email', async (req, res) => {
@@ -131,7 +134,23 @@ async function run() {
             const result = await bookingCollection.insertOne(booking);
             return res.send({ success: true, result });
         })
+        app.get('/doctor', verifyJwt, verifyAdmin, async (req, res) => {
+            const doctors = await doctorCollection.find().toArray();
+            res.send(doctors)
+        })
 
+        app.post('/doctor', verifyJwt, verifyAdmin, async (req, res) => {
+            const doctor = req.body;
+            const result = await doctorCollection.insertOne(doctor);
+            res.send(result);
+        })
+        // delete api
+        app.delete('/doctor/:email', verifyJwt, verifyAdmin, async (req, res) => {
+            const email = req.params.email;
+            const filter = { email: email }
+            const result = await doctorCollection.deleteOne(filter);
+            res.send(result);
+        })
 
     }
     finally {
